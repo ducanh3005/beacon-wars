@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Beacon Wars — Multiplayer Hex Strategy for Humans &amp; AI Agents</title>
+  <meta name="description" content="Fast 2–4 player turn-based tactical hex strategy game playable in browser and via HTTP/JSON API by AI agents." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Cpolygon points='18,2 32,10 32,26 18,34 4,26 4,10' fill='%23070b14' stroke='%2322d3ee' stroke-width='2.5'/%3E%3Cpolygon points='18,8 25,18 18,28 11,18' fill='%2322d3ee'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Tactical Command Bar -->
+    <header class="topbar">
+      <div class="brand-group">
+        <div class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 36 36" width="32" height="32">
+            <polygon points="18,2 32,10 32,26 18,34 4,26 4,10" fill="rgba(34,211,238,0.14)" stroke="#22d3ee" stroke-width="2" />
+            <polygon points="18,9 25,18 18,27 11,18" fill="#22d3ee" />
+            <circle cx="18" cy="18" r="3" fill="#070b14" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">BEACON WARS</h1>
+          <div class="brand-subtitle">HEX SIGNAL TACTICS • HUMANS &amp; AI AGENTS</div>
+        </div>
+      </div>
+
+      <div class="match-hud">
+        <div class="hud-pill mode-pill" id="hudModeBadge">⚡ QUICK PLAY</div>
+        <div class="hud-pill" id="hudRoundBadge">ROUND 1 / 12</div>
+        <div class="hud-pill target-pill">🏆 TARGET: 25 VP</div>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="quickplay-group" role="group" aria-label="Quick Play vs Bots">
+          <span class="qp-label">Quick Play:</span>
+          <button class="btn btn-sm btn-ghost" id="btnQuick2P" title="Instant 2-Player Match vs Tactical Bot">2P</button>
+          <button class="btn btn-sm btn-ghost" id="btnQuick3P" title="Instant 3-Player Free-For-All vs Bots">3P</button>
+          <button class="btn btn-sm btn-ghost" id="btnQuick4P" title="Instant 4-Player Free-For-All vs Bots">4P</button>
+        </div>
+        <button class="btn btn-sm btn-primary" id="btnOpenLobby">🌐 Multiplayer &amp; Bot API</button>
+        <button class="btn btn-sm btn-ghost" id="btnLoadSampleReplay" title="Watch Recorded 4-Player Bot Match">🎬 Demo Replay</button>
+        <button class="btn btn-sm btn-ghost" id="btnOpenRules">📖 Rules</button>
+        <button class="btn btn-sm btn-ghost" id="btnToggleAudio" title="Toggle Synth Audio">🔊 SFX</button>
+      </div>
+    </header>
+
+    <!-- Main 3-Column Command Center -->
+    <main class="workspace">
+      <!-- Left Sidebar: Player Scoreboard & Tactical Legend -->
+      <aside class="sidebar sidebar-left">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">COMMANDERS</span>
+            <span class="panel-meta" id="turnStatusShort">P1 Turn</span>
+          </div>
+          <div id="playersList" class="players-list"></div>
+        </div>
+
+        <div class="panel legend-panel">
+          <div class="panel-header">
+            <span class="panel-title">SECTOR INTEL &amp; COMBAT</span>
+          </div>
+          <div class="legend-grid">
+            <div class="legend-item">
+              <span class="legend-icon nexus-icon">★</span>
+              <div>
+                <strong>Central Nexus (0,0)</strong>
+                <span>+2 VP at end of turn • Pulse Core</span>
+              </div>
+            </div>
+            <div class="legend-item">
+              <span class="legend-icon beacon-icon">◈</span>
+              <div>
+                <strong>Outer Beacons (×4)</strong>
+                <span>+1 VP at end of turn • Pulse Node</span>
+              </div>
+            </div>
+            <div class="legend-item">
+              <span class="legend-icon well-icon">⚡</span>
+              <div>
+                <strong>Energy Wells (×6)</strong>
+                <span>+2 Energy/turn (Base income: 1⚡)</span>
+              </div>
+            </div>
+            <div class="legend-item">
+              <span class="legend-icon strike-icon">⚔</span>
+              <div>
+                <strong>Deterministic Flanking</strong>
+                <span>Atk = Units + Extra Friendly Neighbors vs Def = Units + Shield(+2)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Stage: SVG Hex Board, Action Bar, Replay Scrubber -->
+      <section class="board-stage">
+        <!-- Victory / Waiting Banner -->
+        <div id="stageBanner" class="stage-banner hidden"></div>
+
+        <!-- SVG Hex Grid Container -->
+        <div class="board-viewport" id="boardViewport">
+          <svg id="hexSvg" viewBox="-335 -305 670 610" xmlns="http://www.w3.org/2000/svg" aria-label="Beacon Wars Hexagonal Game Board">
+            <defs>
+              <radialGradient id="bgGlow" cx="50%" cy="50%" r="55%">
+                <stop offset="0%" stop-color="#162a4a" stop-opacity="0.55" />
+                <stop offset="100%" stop-color="#070b14" stop-opacity="0" />
+              </radialGradient>
+              <filter id="neonGlow" x="-25%" y="-25%" width="150%" height="150%">
+                <feGaussianBlur stdDeviation="3.2" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <circle cx="0" cy="0" r="290" fill="url(#bgGlow)" />
+            <circle cx="0" cy="0" r="115" fill="none" stroke="rgba(148,163,184,0.08)" stroke-dasharray="4 6" />
+            <circle cx="0" cy="0" r="215" fill="none" stroke="rgba(148,163,184,0.08)" stroke-dasharray="4 6" />
+            <g id="hexCellsLayer"></g>
+            <g id="hexOverlaysLayer" pointer-events="none"></g>
+          </svg>
+
+          <!-- Floating Hover Combat & Hex Tooltip -->
+          <div id="hexTooltip" class="hex-tooltip hidden"></div>
+        </div>
+
+        <!-- Contextual Tactical Prompt -->
+        <div class="action-hint-bar">
+          <span id="actionHintText">Select an action below or click a hex to command your forces.</span>
+          <span class="hotkey-hint">Hotkeys: [1–4] Actions • [Space] End Turn • [Esc] Cancel</span>
+        </div>
+
+        <!-- Tactical Action Bar -->
+        <div class="action-bar" id="actionBar">
+          <button class="action-btn" id="actDeploy" data-action="DEPLOY">
+            <div class="act-top">
+              <span class="act-key">1</span>
+              <span class="act-name">DEPLOY</span>
+            </div>
+            <div class="act-cost">1 AP • 1⚡</div>
+            <div class="act-desc">+1 Unit or Claim Hex</div>
+          </button>
+
+          <button class="action-btn" id="actStrike" data-action="STRIKE">
+            <div class="act-top">
+              <span class="act-key">2</span>
+              <span class="act-name">STRIKE</span>
+            </div>
+            <div class="act-cost">2 AP • 1⚡</div>
+            <div class="act-desc">Attack + Flank Bonus</div>
+          </button>
+
+          <button class="action-btn" id="actShield" data-action="SHIELD">
+            <div class="act-top">
+              <span class="act-key">3</span>
+              <span class="act-name">SHIELD</span>
+            </div>
+            <div class="act-cost">1 AP • 2⚡</div>
+            <div class="act-desc">+2 Def Until Next Turn</div>
+          </button>
+
+          <button class="action-btn" id="actPulse" data-action="PULSE">
+            <div class="act-top">
+              <span class="act-key">4</span>
+              <span class="act-name">PULSE</span>
+            </div>
+            <div class="act-cost">2 AP • 4⚡</div>
+            <div class="act-desc" id="actPulseDesc">+3 VP/Beacon &amp; Push</div>
+          </button>
+
+          <button class="action-btn end-turn-btn" id="actEndTurn" data-action="END_TURN">
+            <div class="act-top">
+              <span class="act-key">SPACE</span>
+              <span class="act-name">END TURN</span>
+            </div>
+            <div class="act-cost">0 AP • Bank ⚡</div>
+            <div class="act-desc" id="actEndTurnDesc">Score Held Beacons</div>
+          </button>
+        </div>
+
+        <!-- Replay & Turn Scrubber Bar -->
+        <div class="replay-bar">
+          <div class="replay-controls">
+            <button class="btn-icon" id="repFirst" title="Jump to Start (Frame 0)">|&lt;</button>
+            <button class="btn-icon" id="repPrev" title="Previous Move">&lt;</button>
+            <button class="btn-icon" id="repPlay" title="Play / Pause Replay">▶</button>
+            <button class="btn-icon" id="repNext" title="Next Move">&gt;</button>
+            <button class="btn-icon" id="repLast" title="Jump to Latest / Live">&gt;|</button>
+          </div>
+          <input type="range" id="repSlider" min="0" max="0" value="0" class="replay-slider" aria-label="Replay timeline scrubber" />
+          <span class="replay-counter" id="repCounter">Frame 0 / 0 (LIVE)</span>
+          <div class="replay-io">
+            <button class="btn btn-xs btn-ghost" id="btnDownloadReplay" title="Download full match replay JSON">⬇ JSON</button>
+            <label class="btn btn-xs btn-ghost upload-label" title="Load replay JSON file">
+              📂 Load
+              <input type="file" id="inputUploadReplay" accept=".json,application/json" hidden />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Sidebar: Cloud / Bot Connection Card + Live Battle Log -->
+      <aside class="sidebar sidebar-right">
+        <!-- Active Cloud / Server Connection Card -->
+        <div id="connectionCard" class="panel connection-card hidden">
+          <div class="panel-header">
+            <span class="panel-title" id="connCardTitle">LIVE CLOUD ROOM</span>
+            <span class="live-dot">● SYNCED</span>
+          </div>
+          <div class="conn-body">
+            <div class="code-row">
+              <div>
+                <div class="tiny-label">MATCH CODE</div>
+                <div class="match-code-display" id="connMatchCode">------</div>
+              </div>
+              <div class="code-btns">
+                <button class="btn btn-xs btn-ghost" id="btnCopyCode">Copy Code</button>
+                <button class="btn btn-xs btn-ghost" id="btnCopyLink">Copy Link</button>
+              </div>
+            </div>
+
+            <div class="cli-box">
+              <div class="tiny-label">CONNECT PYTHON BOT LIVE (NO INSTALL):</div>
+              <div class="cli-cmd-row">
+                <code id="connBotCmd">python sample_bot.py --cloud --match ------</code>
+                <button class="btn btn-xs btn-primary" id="btnCopyBotCmd">Copy</button>
+              </div>
+            </div>
+
+            <button class="btn btn-sm btn-accent full-width" id="btnFillBotsSidebar">
+              🤖 + Fill Empty Seats with Built-in Bots
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Move Log -->
+        <div class="panel log-panel">
+          <div class="panel-header">
+            <span class="panel-title">TACTICAL LOG</span>
+            <span class="panel-meta" id="logCountBadge">0 moves</span>
+          </div>
+          <div id="moveLogList" class="move-log-list">
+            <div class="log-empty">Awaiting opening deployment...</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Multiplayer & AI Agent Lobby Modal -->
+  <div id="lobbyModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="lobbyModalTitle">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h2 id="lobbyModalTitle">🌐 Multiplayer &amp; AI Agent Arena</h2>
+        <button class="modal-close" id="btnCloseLobby" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button class="tab-btn active" data-tab="tabCloud">☁️ Serverless Cloud Match (Humans + Bots)</button>
+        <button class="tab-btn" data-tab="tabRest">🔌 Local HTTP/JSON Server (`server.py`)</button>
+      </div>
+
+      <!-- Tab 1: Serverless Cloud Match (Works directly on GitHub Pages!) -->
+      <div class="tab-pane active" id="tabCloud">
+        <p class="modal-lead">
+          Play live in your browser against friends in another tab <strong>OR against external Python / HTTP AI bots</strong> anywhere on the internet — zero login, zero local server setup required.
+        </p>
+
+        <div class="lobby-split">
+          <div class="lobby-box">
+            <h3>Create Cloud Match</h3>
+            <label class="field-label">Your Commander Name</label>
+            <input type="text" id="cloudCreateName" class="text-input" value="Commander" maxlength="24" />
+
+            <label class="field-label">Players (Seats)</label>
+            <div class="seg-row" id="cloudPlayerCountSeg">
+              <button class="seg-btn active" data-players="2">2 Players</button>
+              <button class="seg-btn" data-players="3">3 Players</button>
+              <button class="seg-btn" data-players="4">4 Players</button>
+            </div>
+
+            <button class="btn btn-primary full-width mt-12" id="btnCreateCloudMatch">
+              🚀 Create Live Cloud Room
+            </button>
+          </div>
+
+          <div class="lobby-box">
+            <h3>Join Existing Cloud Match</h3>
+            <label class="field-label">6-Character Match Code</label>
+            <input type="text" id="cloudJoinCode" class="text-input mono-input" placeholder="e.g. BW7K4M" maxlength="10" />
+
+            <label class="field-label">Your Name</label>
+            <input type="text" id="cloudJoinName" class="text-input" value="Challenger" maxlength="24" />
+
+            <button class="btn btn-accent full-width mt-12" id="btnJoinCloudMatch">
+              ⚡ Join Cloud Room
+            </button>
+          </div>
+        </div>
+
+        <div class="api-callout">
+          <div class="tiny-label">HOW EXTERNAL AI BOTS JOIN YOUR BROWSER MATCH:</div>
+          <p>
+            Once you create a Cloud Room (e.g. code <code>BW7K4M</code>), run:
+            <code>python sample_bot.py --cloud --match BW7K4M</code>
+            from any terminal — or click <strong>+ Fill Empty Seats with Built-in Bots</strong> anytime!
+          </p>
+        </div>
+      </div>
+
+      <!-- Tab 2: Classic Local REST HTTP/JSON Server -->
+      <div class="tab-pane" id="tabRest">
+        <p class="modal-lead">
+          Running <code>python server.py</code> locally? Connect this browser UI directly to any HTTP/JSON Beacon Wars server to play against or spectate REST API bots.
+        </p>
+
+        <div class="lobby-split">
+          <div class="lobby-box">
+            <h3>REST Server Endpoint</h3>
+            <label class="field-label">Server Base URL</label>
+            <input type="text" id="restServerUrl" class="text-input mono-input" value="http://localhost:8080" />
+
+            <label class="field-label">Players</label>
+            <select id="restPlayerCount" class="text-input">
+              <option value="2">2 Players</option>
+              <option value="3">3 Players</option>
+              <option value="4">4 Players</option>
+            </select>
+
+            <button class="btn btn-primary full-width mt-12" id="btnCreateRestMatch">
+              🔌 Create REST API Match
+            </button>
+          </div>
+
+          <div class="lobby-box">
+            <h3>Join / Spectate REST Match</h3>
+            <label class="field-label">Match Code on Server</label>
+            <input type="text" id="restJoinCode" class="text-input mono-input" placeholder="e.g. BW7K4M" maxlength="10" />
+
+            <div class="btn-stack mt-12">
+              <button class="btn btn-accent full-width" id="btnJoinRestMatch">Join Seat as Human</button>
+              <button class="btn btn-ghost full-width" id="btnSpectateRestMatch">Spectate Match Live</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="api-callout">
+          <div class="tiny-label">QUICK REST BOT COMMAND:</div>
+          <p><code>python server.py</code> &rarr; <code>python sample_bot.py --server http://localhost:8080 --match &lt;CODE&gt;</code></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rules & Tactical Guide Modal -->
+  <div id="rulesModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="rulesModalTitle">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h2 id="rulesModalTitle">📖 Beacon Wars — Tactical Field Manual</h2>
+        <button class="modal-close" id="btnCloseRules" aria-label="Close">&times;</button>
+      </div>
+      <div class="rules-content">
+        <p class="rules-summary">
+          <strong>1-Paragraph Summary:</strong> 2–4 Commanders battle across a 37-hex arena to be the first to reach <strong>25 Victory Points (VP)</strong> (or hold the highest VP at the end of <strong>Round 12</strong>). Each turn grants <strong>3 Action Points (AP)</strong> and <strong>1 + 2×Wells Energy</strong> (capped at 10⚡). Spend AP and Energy to <strong>Deploy</strong> units, launch deterministic flanking <strong>Strikes</strong>, raise protective <strong>Shields</strong>, or overcharge held Beacons with <strong>Pulse</strong> for burst VP and shockwave knockback. At the end of your turn, harvest <strong>+2 VP</strong> for controlling the Central Nexus <code>(0,0)</code> and <strong>+1 VP</strong> for each Outer Beacon.
+        </p>
+
+        <div class="rules-grid">
+          <div class="rule-box">
+            <h4>1. DEPLOY (1 AP • 1⚡)</h4>
+            <p>Add <strong>+1 Unit</strong> to a hex you control (max 4 units/hex) OR claim an adjacent neutral hex with <strong>1 Unit</strong>. (If wiped to 0 hexes, perform an Orbital Drop onto any empty outer-ring hex.)</p>
+          </div>
+          <div class="rule-box">
+            <h4>2. STRIKE (2 AP • 1⚡)</h4>
+            <p>Attack an adjacent enemy hex from a friendly hex with <strong>2+ Units</strong>. Zero RNG — pure geometry:<br/>
+            <code>Attack = Attacker Units + Extra Friendly Hexes Adjacent to Target</code><br/>
+            <code>Defense = Defender Units + (2 if Shielded)</code><br/>
+            • <strong>Attack &gt; Defense:</strong> Capture hex with <code>Units - 1</code> (1 stays behind).<br/>
+            • <strong>Tied:</strong> Both lose 1 unit.<br/>
+            • <strong>Lower:</strong> Attacker loses 1 unit.</p>
+          </div>
+          <div class="rule-box">
+            <h4>3. SHIELD (1 AP • 2⚡)</h4>
+            <p>Fortify one controlled hex with a <strong>+2 Defense Forcefield</strong> that lasts until the start of your next turn — ideal for holding contested Beacons against enemy Strikes.</p>
+          </div>
+          <div class="rule-box">
+            <h4>4. PULSE (2 AP • 4⚡)</h4>
+            <p>Overcharge all Beacons you hold for an immediate <strong>+3 VP per Beacon</strong> AND push adjacent unshielded enemy 1-unit scouts 1 hex away! Requires 1 turn to recharge after firing.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="engine.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
